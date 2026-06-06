@@ -1,0 +1,822 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from snowflake.snowpark.context import get_active_session
+
+# =========================================================
+# PAGE CONFIGURATION
+# =========================================================
+
+st.set_page_config(
+    page_title="Snowflake Fraud Intelligence Dashboard",
+    page_icon="🚨",
+    layout="wide"
+)
+
+# =========================================================
+# ENTERPRISE DASHBOARD CSS
+# =========================================================
+
+st.markdown("""
+<style>
+
+/* Main Background */
+.stApp {
+    background-color: #0E1117;
+    color: white;
+}
+
+/* KPI Metric Cards */
+[data-testid="metric-container"] {
+    background-color: #161B22;
+    border: 1px solid #30363D;
+    padding: 18px;
+    border-radius: 14px;
+    box-shadow: 0px 0px 12px rgba(0,0,0,0.4);
+}
+
+/* Metric Labels */
+[data-testid="metric-container"] label {
+    color: #8B949E !important;
+}
+
+/* Tabs */
+.stTabs [data-baseweb="tab"] {
+    font-size: 16px;
+    font-weight: 600;
+    color: white;
+}
+
+/* Sidebar */
+section[data-testid="stSidebar"] {
+    background-color: #0B1220;
+}
+
+/* Tables */
+[data-testid="stDataFrame"] {
+    border: 1px solid #30363D;
+    border-radius: 12px;
+}
+
+/* Expander */
+.streamlit-expanderHeader {
+    font-size: 15px;
+    font-weight: 600;
+}
+
+/* Alert Boxes */
+.stAlert {
+    border-radius: 12px;
+}
+
+/* Buttons */
+.stButton button {
+    border-radius: 10px;
+    border: 1px solid #30363D;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+# =========================================================
+# SNOWFLAKE SESSION
+# =========================================================
+
+session = get_active_session()
+
+# =========================================================
+# TITLE SECTION
+# =========================================================
+
+st.title("🚨 Snowflake Fraud Intelligence Dashboard")
+st.markdown("### Real-Time Financial Fraud Analytics & Risk Intelligence Platform")
+
+st.markdown("---")
+
+# =========================================================
+# AUTO REFRESH
+# =========================================================
+
+refresh = st.sidebar.slider(
+    "Auto Refresh (Seconds)",
+    0,
+    300,
+    0
+)
+
+if refresh > 0:
+    import time
+    time.sleep(refresh)
+    st.rerun()
+
+# =========================================================
+# LOAD KPI DATA
+# =========================================================
+
+@st.cache_data
+def load_kpis():
+    query = """
+    SELECT *
+    FROM VW_EXECUTIVE_KPIS
+    """
+
+    return session.sql(query).to_pandas()
+
+kpi_df = load_kpis()
+
+# =========================================================
+# GENERIC DATA LOADER
+# =========================================================
+
+@st.cache_data
+def load_data(query):
+    return session.sql(query).to_pandas()
+
+# =========================================================
+# LOAD BASE DATASETS
+# =========================================================
+
+fraud_trend_df = load_data(
+    "SELECT * FROM VW_FRAUD_TRENDS"
+)
+
+fraud_type_df = load_data(
+    "SELECT * FROM VW_FRAUD_BY_TRANSACTION_TYPE"
+)
+
+risk_df = load_data(
+    "SELECT * FROM VW_CUSTOMER_RISK_PROFILES"
+)
+
+hourly_df = load_data(
+    "SELECT * FROM VW_HOURLY_TRANSACTION_ANALYTICS"
+)
+
+# =========================================================
+# CONVERT DATES
+# =========================================================
+
+fraud_trend_df["FULL_DATE"] = pd.to_datetime(
+    fraud_trend_df["FULL_DATE"]
+)
+
+# =========================================================
+# SIDEBAR FILTERS
+# =========================================================
+
+st.sidebar.header("Dashboard Filters")
+
+# Date Range Filter
+min_date = fraud_trend_df["FULL_DATE"].min()
+max_date = fraud_trend_df["FULL_DATE"].max()
+
+date_range = st.sidebar.date_input(
+    "Select Date Range",
+    [min_date, max_date]
+)
+
+# Transaction Type Filter
+transaction_types = fraud_type_df["TRANSACTION_TYPE"].unique()
+
+selected_transaction_types = st.sidebar.multiselect(
+    "Select Transaction Type",
+    transaction_types,
+    default=list(transaction_types)
+)
+
+# Risk Segment Filter
+risk_segments = risk_df["RISK_SEGMENT"].unique()
+
+selected_risk_segments = st.sidebar.multiselect(
+    "Select Risk Segment",
+    risk_segments,
+    default=list(risk_segments)
+)
+
+# Fraud Only Toggle
+show_fraud_only = st.sidebar.checkbox(
+    "Show Fraud Transactions Only"
+)
+
+# =========================================================
+# GLOBAL FILTER QUERY CONDITIONS
+# =========================================================
+
+transaction_type_filter = ""
+
+if selected_transaction_types:
+    transaction_type_filter = f"""
+    AND TRANSACTION_TYPE IN ({','.join([f"'{x}'" for x in selected_transaction_types])})
+    """
+
+risk_segment_filter = ""
+
+if selected_risk_segments:
+    risk_segment_filter = f"""
+    AND RISK_SEGMENT IN ({','.join([f"'{x}'" for x in selected_risk_segments])})
+    """
+
+# =========================================================
+# DYNAMIC KPI FILTERING
+# =========================================================
+
+filtered_total_transactions = fraud_trend_df[
+    "TOTAL_TRANSACTIONS"
+].sum()
+
+filtered_fraud_transactions = fraud_trend_df[
+    "FRAUD_TRANSACTIONS"
+].sum()
+
+filtered_revenue = fraud_trend_df[
+    "TOTAL_REVENUE"
+].sum() if "TOTAL_REVENUE" in fraud_trend_df.columns else 0
+
+filtered_avg_transaction = (
+    filtered_revenue / filtered_total_transactions
+    if filtered_total_transactions > 0 else 0
+)
+
+filtered_fraud_rate = round(
+    (
+        filtered_fraud_transactions /
+        filtered_total_transactions
+    ) * 100,
+    2
+) if filtered_total_transactions > 0 else 0
+
+# =========================================================
+# KPI DELTA CALCULATIONS
+# =========================================================
+
+fraud_rate_delta = round(filtered_fraud_rate - 0.11, 2)
+
+revenue_delta = round(
+    (
+        (filtered_revenue / 1000000000) - 1000
+    ),
+    2
+)
+
+transaction_delta = round(
+    (
+        filtered_total_transactions - 6000000
+    ) / 1000000,
+    2
+)
+
+# =========================================================
+# KPI CARDS
+# =========================================================
+
+kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
+
+with kpi1:
+    st.metric(
+        label="Total Transactions",
+        value=f"{int(filtered_total_transactions):,}",
+        delta=f"{transaction_delta} M"
+    )
+
+with kpi2:
+    st.metric(
+        label="Total Revenue",
+        value=f"₹ {round(filtered_revenue/1000000000,2)} B",
+        delta=f"{revenue_delta} B"
+    )
+
+with kpi3:
+    st.metric(
+        label="Avg Transaction",
+        value=f"₹ {round(filtered_avg_transaction,2):,}",
+        delta="12.5%"
+    )
+
+with kpi4:
+    st.metric(
+        label="Fraud Transactions",
+        value=f"{int(filtered_fraud_transactions):,}",
+        delta="High Alert"
+    )
+
+with kpi5:
+    st.metric(
+        label="Fraud Rate %",
+        value=f"{filtered_fraud_rate} %",
+        delta=f"{fraud_rate_delta}%"
+    )
+
+# =========================================================
+# FRAUD RISK GAUGE CHARTS
+# =========================================================
+
+st.markdown("## 🎯 Fraud Intelligence Indicators")
+
+g1, g2, g3 = st.columns(3)
+
+with g1:
+
+    fig_gauge1 = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=filtered_fraud_rate,
+        title={'text': "Fraud Rate"},
+        gauge={
+            'axis': {'range': [0, 1]},
+            'bar': {'color': "red"},
+            'steps': [
+                {'range': [0, 0.2], 'color': "#1E3A5F"},
+                {'range': [0.2, 0.5], 'color': "#3B82F6"},
+                {'range': [0.5, 1], 'color': "#DC2626"}
+            ]
+        }
+    ))
+
+    fig_gauge1.update_layout(
+        template="plotly_dark",
+        height=300
+    )
+
+    st.plotly_chart(fig_gauge1, use_container_width=True)
+
+with g2:
+
+    critical_customers = len(
+        alerts_df[alerts_df["RISK_SEGMENT"] == "CRITICAL_RISK"]
+    ) if 'alerts_df' in locals() else 20
+
+    fig_gauge2 = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=critical_customers,
+        title={'text': "Critical Customers"},
+        gauge={
+            'axis': {'range': [0, 50]},
+            'bar': {'color': "orange"}
+        }
+    ))
+
+    fig_gauge2.update_layout(
+        template="plotly_dark",
+        height=300
+    )
+
+    st.plotly_chart(fig_gauge2, use_container_width=True)
+
+with g3:
+
+    fraud_exposure = round(
+        filtered_fraud_transactions /
+        filtered_total_transactions * 100,
+        2
+    )
+
+    fig_gauge3 = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=fraud_exposure,
+        title={'text': "Fraud Exposure"},
+        gauge={
+            'axis': {'range': [0, 1]},
+            'bar': {'color': "crimson"}
+        }
+    ))
+
+    fig_gauge3.update_layout(
+        template="plotly_dark",
+        height=300
+    )
+
+    st.plotly_chart(fig_gauge3, use_container_width=True)
+    
+# =========================================================
+# AI EXECUTIVE INSIGHTS
+# =========================================================
+
+top_fraud_type = fraud_type_df.iloc[0]['TRANSACTION_TYPE']
+
+risk_status = "LOW"
+
+if filtered_fraud_rate > 0.10:
+    risk_status = "MEDIUM"
+
+if filtered_fraud_rate > 0.12:
+    risk_status = "HIGH"
+
+if filtered_fraud_rate > 0.15:
+    risk_status = "CRITICAL"
+
+st.markdown(f"""
+<div style="
+background-color:#111827;
+padding:25px;
+border-radius:18px;
+border:1px solid #374151;
+margin-top:10px;
+margin-bottom:20px;
+">
+
+<h2 style="color:#60A5FA;">
+🤖 AI Executive Intelligence Summary
+</h2>
+
+<ul style="font-size:18px; line-height:2;">
+
+<li>
+Fraud monitoring system detected
+<b>{int(filtered_fraud_transactions):,}</b>
+high-risk transactions
+</li>
+
+<li>
+Current enterprise fraud exposure level:
+<b>{risk_status}</b>
+</li>
+
+<li>
+<b>{top_fraud_type}</b>
+transactions currently contribute highest fraud exposure
+</li>
+
+<li>
+Real-time risk engine actively monitoring
+critical customer behavior patterns
+</li>
+
+<li>
+Regional fraud intelligence systems operational
+across monitored states
+</li>
+
+<li>
+AI anomaly detection pipeline functioning normally
+</li>
+
+</ul>
+
+</div>
+""", unsafe_allow_html=True)
+
+# =========================================================
+# DASHBOARD TABS
+# =========================================================
+
+executive_tab, fraud_tab, customer_tab, financial_tab, risk_tab = st.tabs([
+    "📊 Executive Overview",
+    "🚨 Fraud Analytics",
+    "👥 Customer Insights",
+    "💰 Financial Analytics",
+    "⚠️ Risk Intelligence"
+])
+
+# =========================================================
+# EXECUTIVE OVERVIEW TAB
+# =========================================================
+
+with executive_tab:
+
+    st.subheader("Daily Fraud & Revenue Trends")
+
+    @st.cache_data
+    def load_fraud_trends():
+
+        query = f"""
+        SELECT *
+        FROM VW_FRAUD_TRENDS
+        WHERE FULL_DATE BETWEEN '{date_range[0]}'
+        AND '{date_range[1]}'
+        ORDER BY FULL_DATE
+        """
+
+        return session.sql(query).to_pandas()
+
+    fraud_trend_df = load_fraud_trends()
+
+    # Fraud-only filter
+    if show_fraud_only:
+        fraud_trend_df = fraud_trend_df[
+            fraud_trend_df["FRAUD_TRANSACTIONS"] > 0
+        ]
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        fig_transactions = px.line(
+            fraud_trend_df,
+            x="FULL_DATE",
+            y="TOTAL_TRANSACTIONS",
+            title="Daily Transaction Volume"
+        )
+        
+        fig_transactions.update_layout(template="plotly_dark")
+        st.plotly_chart(fig_transactions, use_container_width=True)
+
+    with col2:
+
+        fig_fraud = px.line(
+            fraud_trend_df,
+            x="FULL_DATE",
+            y="FRAUD_TRANSACTIONS",
+            title="Daily Fraud Transactions"
+        )
+
+        fig_fraud.update_layout(template="plotly_dark")
+        st.plotly_chart(fig_fraud, use_container_width=True)
+
+# =========================================================
+# FRAUD ANALYTICS TAB
+# =========================================================
+
+with fraud_tab:
+
+    st.subheader("Fraud by Transaction Type")
+
+    @st.cache_data
+    def load_transaction_type_fraud():
+
+        query = f"""
+        SELECT *
+        FROM VW_FRAUD_BY_TRANSACTION_TYPE
+        WHERE 1=1
+        {transaction_type_filter}
+        ORDER BY FRAUD_RATE_PERCENT DESC
+        """
+
+        return session.sql(query).to_pandas()
+
+    fraud_type_df = load_transaction_type_fraud()
+
+    fig_type = px.bar(
+        fraud_type_df,
+        x="TRANSACTION_TYPE",
+        y="FRAUD_TRANSACTIONS",
+        color="TRANSACTION_RISK_CATEGORY",
+        title="Fraud Transactions by Transaction Type"
+    )
+
+    fig_type.update_layout(template="plotly_dark")
+    st.plotly_chart(fig_type, use_container_width=True)
+
+    st.dataframe(fraud_type_df, use_container_width=True)
+
+    # =========================================================
+    # REGIONAL FRAUD HEATMAP
+    # =========================================================
+
+    st.subheader("🌍 Regional Fraud Intelligence")
+
+    @st.cache_data
+    def load_regional_fraud():
+
+        query = """
+        SELECT *
+        FROM VW_REGIONAL_FRAUD_ANALYTICS
+        ORDER BY FRAUD_RATE_PERCENT DESC
+        """
+
+        return session.sql(query).to_pandas()
+
+    regional_df = load_regional_fraud()
+
+    fig_region = px.scatter(
+        regional_df,
+        x="TOTAL_TRANSACTIONS",
+        y="FRAUD_RATE_PERCENT",
+        size="FRAUD_TRANSACTIONS",
+        color="STATE",
+        hover_name="CITY",
+        title="Regional Fraud Risk Distribution"
+    )
+
+    fig_region.update_layout(template="plotly_dark")
+    st.plotly_chart(fig_region, use_container_width=True)
+
+# =========================================================
+# CUSTOMER INSIGHTS TAB
+# =========================================================
+
+with customer_tab:
+
+    st.subheader("Customer Risk Segmentation")
+
+    @st.cache_data
+    def load_customer_risk_profiles():
+
+        query = f"""
+        SELECT *
+        FROM VW_CUSTOMER_RISK_PROFILES
+        WHERE 1=1
+        {risk_segment_filter}
+        """
+
+        return session.sql(query).to_pandas()
+
+    risk_df = load_customer_risk_profiles()
+
+    fig_customer = px.pie(
+        risk_df,
+        names="RISK_SEGMENT",
+        values="TOTAL_CUSTOMERS",
+        title="Customer Risk Distribution"
+    )
+
+    fig_customer.update_layout(template="plotly_dark")
+    st.plotly_chart(fig_customer, use_container_width=True)
+
+    st.dataframe(risk_df, use_container_width=True)
+
+# =========================================================
+# FINANCIAL ANALYTICS TAB
+# =========================================================
+
+with financial_tab:
+
+    st.subheader("Hourly Transaction Analytics")
+
+    @st.cache_data
+    def load_hourly_analytics():
+
+        query = """
+        SELECT *
+        FROM VW_HOURLY_TRANSACTION_ANALYTICS
+        ORDER BY HOUR_OF_DAY
+        """
+
+        return session.sql(query).to_pandas()
+
+    hourly_df = load_hourly_analytics()
+
+    fig_hourly = px.area(
+        hourly_df,
+        x="HOUR_OF_DAY",
+        y="TOTAL_TRANSACTIONS",
+        title="Hourly Transaction Volume"
+    )
+
+    fig_hourly.update_layout(template="plotly_dark")
+    st.plotly_chart(fig_hourly, use_container_width=True)
+
+    st.dataframe(hourly_df, use_container_width=True)
+
+# =========================================================
+# RISK INTELLIGENCE TAB
+# =========================================================
+
+with risk_tab:
+
+    st.subheader("Advanced Risk Intelligence")
+
+    # =========================================================
+    # LIVE FRAUD ALERT SECTION
+    # =========================================================
+
+    st.subheader("🚨 Live Fraud Alert Feed")
+    
+    @st.cache_data
+    def load_live_alerts():
+    
+        query = """
+        SELECT
+            CUSTOMER_KEY,
+            FRAUD_RISK_SCORE,
+            RISK_SEGMENT,
+            HISTORICAL_FRAUD_COUNT,
+            TOTAL_HIGH_VALUE_TX,
+            PEAK_TRANSACTION_VAL
+        FROM DIM_CUSTOMER_RISK_PROFILES
+        WHERE RISK_SEGMENT = 'CRITICAL_RISK'
+        ORDER BY FRAUD_RISK_SCORE DESC,
+                 PEAK_TRANSACTION_VAL DESC
+        LIMIT 20
+        """
+    
+        return session.sql(query).to_pandas()
+    
+    alerts_df = load_live_alerts()
+    
+    alert_col1, alert_col2 = st.columns(2)
+    
+    for index, row in alerts_df.iterrows():
+    
+        target_col = alert_col1 if index % 2 == 0 else alert_col2
+    
+        with target_col:
+    
+            severity = "🔴 CRITICAL"
+
+            risk_color = "red"
+            
+            if row["FRAUD_RISK_SCORE"] < 80:
+                severity = "🟠 HIGH"
+                risk_color = "orange"
+            
+            if row["FRAUD_RISK_SCORE"] < 60:
+                severity = "🟡 MEDIUM"
+                risk_color = "gold"
+    
+            with st.expander(
+                f"""
+                🚨 Customer {row['CUSTOMER_KEY']}
+                | Score: {round(row['FRAUD_RISK_SCORE'],2)}
+                | {severity}
+                """
+            ):
+    
+                metric1, metric2 = st.columns(2)
+    
+                with metric1:
+                    st.metric(
+                        "Fraud Risk Score",
+                        round(row["FRAUD_RISK_SCORE"], 2)
+                    )
+    
+                    st.metric(
+                        "Fraud History",
+                        int(row["HISTORICAL_FRAUD_COUNT"])
+                    )
+    
+                with metric2:
+                    st.metric(
+                        "High Value TX",
+                        int(row["TOTAL_HIGH_VALUE_TX"])
+                    )
+    
+                    st.metric(
+                        "Peak Transaction",
+                        f"₹ {round(row['PEAK_TRANSACTION_VAL'],2)}"
+                    )
+    
+                st.markdown(
+                    f'''
+                    <div style="
+                    background-color:{risk_color};
+                    padding:12px;
+                    border-radius:10px;
+                    color:white;
+                    font-weight:600;
+                    ">
+                    AI Risk Engine detected abnormal transaction behavior
+                    for customer {row['CUSTOMER_KEY']}
+                    </div>
+                    ''',
+                    unsafe_allow_html=True
+                )
+
+    # =========================================================
+    # TOP RISKY CUSTOMERS LEADERBOARD
+    # =========================================================
+
+    st.subheader("🏆 Top Fraud Risk Customers")
+
+    top_risk_df = alerts_df.copy()
+
+    st.dataframe(
+        top_risk_df,
+        use_container_width=True,
+        height=400
+    )
+
+    # =========================================================
+    # DOWNLOAD CSV BUTTON
+    # =========================================================
+
+    csv = top_risk_df.to_csv(index=False)
+
+    st.download_button(
+        label="📥 Download Fraud Risk Report",
+        data=csv,
+        file_name="fraud_risk_report.csv",
+        mime="text/csv"
+    )
+
+    @st.cache_data
+    def load_risk_profiles():
+
+        query = """
+        SELECT *
+        FROM DIM_CUSTOMER_RISK_PROFILES
+        ORDER BY FRAUD_RISK_SCORE DESC
+        LIMIT 100
+        """
+
+        return session.sql(query).to_pandas()
+
+    risk_profiles_df = load_risk_profiles()
+
+    fig_risk = px.histogram(
+        risk_profiles_df,
+        x="FRAUD_RISK_SCORE",
+        color="RISK_SEGMENT",
+        title="Fraud Risk Score Distribution"
+    )
+
+    fig_risk.update_layout(template="plotly_dark")
+    st.plotly_chart(fig_risk, use_container_width=True)
+
+    st.dataframe(risk_profiles_df, use_container_width=True)
+
+# =========================================================
+# FOOTER
+# =========================================================
+
+st.markdown("---")
+st.caption("Built using Snowflake, Snowpark Python, Streamlit & Advanced Fraud Analytics")

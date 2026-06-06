@@ -1,0 +1,50 @@
+USE SCHEMA GOLD_LAYER;
+
+-- 1. Fraud Detection: Sudden Spike in Spending
+-- Identify customers whose transaction amount is significantly higher (e.g., 5x) than their average spending.
+
+SELECT 
+    f.TRANSACTION_HASH,
+    c.CUSTOMER_ID,
+    f.TRANSACTION_AMOUNT,
+    c.AVG_TRANSACTION_AMOUNT AS NORMAL_SPENDING,
+    (f.TRANSACTION_AMOUNT / NULLIF(c.AVG_TRANSACTION_AMOUNT, 0)) AS SPIKE_FACTOR
+FROM FACT_TRANSACTIONS f
+JOIN DIM_CUSTOMER c ON f.CUSTOMER_KEY = c.CUSTOMER_KEY
+WHERE f.IS_FRAUD = 1 
+  AND SPIKE_FACTOR > 5
+ORDER BY SPIKE_FACTOR DESC
+LIMIT 10;
+
+
+
+-- 2. Pattern Analysis: Transactions from Multiple Locations
+ -- In a real-world scenario, we look for "impossible travel." Since our locations are synthetic, we will look for customers who have transactions in different cities within the same day.
+
+SELECT 
+    f.CUSTOMER_KEY,
+    t.FULL_DATE,
+    COUNT(DISTINCT f.LOCATION_KEY) AS UNIQUE_CITIES_VISITED,
+    SUM(f.TRANSACTION_AMOUNT) AS TOTAL_DAILY_SPEND
+FROM FACT_TRANSACTIONS f
+JOIN DIM_TIME t ON f.TIME_KEY = t.TIME_KEY
+GROUP BY f.CUSTOMER_KEY, t.FULL_DATE
+HAVING UNIQUE_CITIES_VISITED > 1
+ORDER BY UNIQUE_CITIES_VISITED DESC
+LIMIT 10;
+
+
+-- 3. Financial Metrics: Revenue & Volume Trends
+-- This query prepares the data for your "Transaction Volume Trends" chart.
+
+SELECT 
+    t.FULL_DATE,
+    t.DAY_NAME,
+    COUNT(*) AS TRANSACTION_COUNT,
+    SUM(TRANSACTION_AMOUNT) AS TOTAL_VOLUME,
+    SUM(IS_FRAUD) AS FRAUD_CASES,
+    (SUM(IS_FRAUD) / COUNT(*)) * 100 AS FRAUD_RATE_PERCENTAGE
+FROM FACT_TRANSACTIONS f
+JOIN DIM_TIME t ON f.TIME_KEY = t.TIME_KEY
+GROUP BY t.FULL_DATE, t.DAY_NAME
+ORDER BY t.FULL_DATE;

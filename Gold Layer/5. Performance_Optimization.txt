@@ -1,0 +1,156 @@
+USE DATABASE Synthetic_Financial_DB;
+
+USE SCHEMA GOLD_LAYER;
+
+USE WAREHOUSE Synthetic_Financial_WH;
+
+
+/*
+Step 1 — Clustering Keys
+Snowflake automatically manages micro-partitions, but clustering keys improve:
+pruning
+query performance
+large-table scans
+Since our dataset has: 6.3M+ rows, this is meaningful optimization.
+
+Why These Keys?
+Column	                             Reason
+TRANSACTION_TIMESTAMP	      time-based analytics
+IS_FRAUD	                   fraud filtering
+TRANSACTION_TYPE_KEY	       transaction-type queries
+
+I used DATE(TRANSACTION_TIMESTAMP) instead of TRANSACTION_TIMESTAMP, This:
+reduces cardinality
+lowers reclustering cost
+improves long-term scalability
+maintains partition pruning efficiency
+*/
+
+
+ALTER TABLE FACT_TRANSACTIONS
+CLUSTER BY
+(
+    DATE(TRANSACTION_TIMESTAMP),
+    IS_FRAUD,
+    TRANSACTION_TYPE_KEY
+);
+
+
+
+
+/*
+Step 2 — Check Clustering Information
+It gives:
+clustering depth
+partition overlap
+optimization quality
+*/
+
+
+SELECT SYSTEM$CLUSTERING_INFORMATION(
+    'FACT_TRANSACTIONS'
+);
+
+
+
+
+/*
+Step 3 — Materialized View for Fraud Analytics
+Materialized Views are important because:
+fraud queries run repeatedly
+aggregations are expensive
+dashboards need fast refreshes
+
+Materialized Views in Snowflake:
+physically store results
+auto-refresh
+improve dashboard performance
+*/
+
+
+CREATE OR REPLACE MATERIALIZED VIEW MV_FRAUD_SUMMARY AS
+
+SELECT
+    TRANSACTION_TYPE_KEY,
+    TIME_KEY,
+    LOCATION_KEY,
+    COUNT(*) AS TOTAL_TRANSACTIONS,
+    SUM(IS_FRAUD) AS FRAUD_TRANSACTIONS,
+    SUM(TRANSACTION_AMOUNT) AS TOTAL_TRANSACTION_AMOUNT
+
+FROM FACT_TRANSACTIONS
+
+GROUP BY TRANSACTION_TYPE_KEY, TIME_KEY, LOCATION_KEY;
+
+
+-- Validate Materialized View
+SELECT *
+FROM MV_FRAUD_SUMMARY
+LIMIT 5;
+
+
+
+
+
+/*
+Step 4 — Query Using Materialized View (OPTIMIZED FRAUD ANALYTICS QUERY)
+Instead of scanning: 6.3M rows
+Snowflake scans: pre-aggregated materialized data
+*/
+
+
+SELECT
+    DTT.TRANSACTION_TYPE,
+    DL.STATE,
+    SUM(MV.FRAUD_TRANSACTIONS) AS TOTAL_FRAUD_TRANSACTIONS,
+    ROUND(
+        SUM(MV.TOTAL_TRANSACTION_AMOUNT),
+        2
+    ) AS TOTAL_TRANSACTION_AMOUNT
+
+FROM MV_FRAUD_SUMMARY MV
+
+INNER JOIN DIM_TRANSACTION_TYPE DTT
+    ON MV.TRANSACTION_TYPE_KEY = DTT.TRANSACTION_TYPE_KEY
+
+INNER JOIN DIM_LOCATION DL
+    ON MV.LOCATION_KEY = DL.LOCATION_KEY
+
+GROUP BY DTT.TRANSACTION_TYPE, DL.STATE
+ORDER BY TOTAL_FRAUD_TRANSACTIONS DESC;
+
+
+
+
+
+/*
+Step 5 — Result Cache Demonstration
+Snowflake has automatic result caching.
+Run the SAME query twice:
+first run slower and second run much faster
+This demonstrates: Result Cache Optimiza
+*/
+
+SELECT
+    COUNT(*),
+    SUM(TRANSACTION_AMOUNT)
+FROM FACT_TRANSACTIONS
+WHERE IS_FRAUD = 1;
+
+
+
+
+
+/*
+Step 6 — Micro-Partition Pruning Demonstration
+This benefits from: clustering and partition pruning
+*/
+
+
+SELECT
+    COUNT(*)
+FROM FACT_TRANSACTIONS
+WHERE TRANSACTION_TIMESTAMP
+BETWEEN '2025-01-10'
+AND '2025-01-15'
+AND IS_FRAUD = 1;s

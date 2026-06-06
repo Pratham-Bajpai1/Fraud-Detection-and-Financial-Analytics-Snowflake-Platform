@@ -1,0 +1,107 @@
+USE DATABASE Synthetic_Financial_DB;
+
+USE SCHEMA GOLD_LAYER;
+
+USE WAREHOUSE Synthetic_Financial_WH;
+
+
+/*
+Dataset limitation:
+no actual city/state/country
+
+DIM_LOCATION enable:
+geo fraud detection
+multi-location anomalies
+regional analytics
+fraud hotspots
+customer geography analysis
+
+I will:
+deterministically assign synthetic locations
+keep results reproducible
+avoid random() instability
+i use HASH logic based on CUSTOMER_ID.
+*/
+
+
+
+CREATE OR REPLACE TABLE DIM_LOCATION AS
+
+WITH CUSTOMER_LOCATIONS AS
+(
+    SELECT DISTINCT
+        CUSTOMER_ID,
+        MOD(ABS(HASH(CUSTOMER_ID)), 10) AS LOCATION_BUCKET
+    FROM SILVER_LAYER.SILVER_TRANSACTIONS
+)
+
+SELECT DISTINCT
+
+    ROW_NUMBER() OVER (ORDER BY CUSTOMER_ID) AS LOCATION_KEY,
+
+    CUSTOMER_ID,
+
+    CASE LOCATION_BUCKET
+        WHEN 0 THEN 'Mumbai'
+        WHEN 1 THEN 'Delhi'
+        WHEN 2 THEN 'Bangalore'
+        WHEN 3 THEN 'Hyderabad'
+        WHEN 4 THEN 'Chennai'
+        WHEN 5 THEN 'Pune'
+        WHEN 6 THEN 'Kolkata'
+        WHEN 7 THEN 'Ahmedabad'
+        WHEN 8 THEN 'Jaipur'
+        ELSE 'Lucknow'
+    END AS CITY,
+
+    CASE LOCATION_BUCKET
+        WHEN 0 THEN 'Maharashtra'
+        WHEN 1 THEN 'Delhi'
+        WHEN 2 THEN 'Karnataka'
+        WHEN 3 THEN 'Telangana'
+        WHEN 4 THEN 'Tamil Nadu'
+        WHEN 5 THEN 'Maharashtra'
+        WHEN 6 THEN 'West Bengal'
+        WHEN 7 THEN 'Gujarat'
+        WHEN 8 THEN 'Rajasthan'
+        ELSE 'Uttar Pradesh'
+    END AS STATE,
+
+    'India' AS COUNTRY,
+
+    CASE
+        WHEN LOCATION_BUCKET IN (0,1,2)
+            THEN 'HIGH_TRANSACTION_REGION'
+        WHEN LOCATION_BUCKET IN (3,4,5)
+            THEN 'MEDIUM_TRANSACTION_REGION'
+        ELSE 'LOW_TRANSACTION_REGION'
+    END AS REGION_RISK_CATEGORY,
+
+    CURRENT_TIMESTAMP() AS CREATED_AT
+
+FROM CUSTOMER_LOCATIONS;
+
+
+
+-- validation queries
+
+-- total location records, each customer gets one location.
+SELECT COUNT(*) // 6353307
+FROM DIM_LOCATION;
+
+
+-- city distribution
+SELECT
+    CITY,
+    COUNT(*) AS TOTAL_CUSTOMERS
+FROM DIM_LOCATION
+GROUP BY CITY
+ORDER BY TOTAL_CUSTOMERS DESC;
+
+
+-- region risk distribution
+SELECT
+    REGION_RISK_CATEGORY,
+    COUNT(*) AS TOTAL_CUSTOMERS
+FROM DIM_LOCATION
+GROUP BY REGION_RISK_CATEGORY;

@@ -1,0 +1,15 @@
+CREATE DATABASE Synthetic_Financial_DB;
+
+USE DATABASE Synthetic_Financial_DB;
+
+CREATE OR REPLACE SCHEMA Synthetic_Financial_SCHEMA;
+
+USE SCHEMA Synthetic_Financial_SCHEMA;
+
+
+CREATE WAREHOUSE Synthetic_Financial_WH
+WITH WAREHOUSE_SIZE = 'SMALL'
+AUTO_SUSPEND = 60
+AUTO_RESUME = TRUE;
+
+USE WAREHOUSE Synthetic_Financial_WH;

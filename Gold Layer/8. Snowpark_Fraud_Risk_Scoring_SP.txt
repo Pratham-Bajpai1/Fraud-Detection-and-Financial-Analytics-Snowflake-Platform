@@ -1,0 +1,80 @@
+USE DATABASE Synthetic_Financial_DB;
+
+USE SCHEMA GOLD_LAYER;
+
+USE WAREHOUSE Synthetic_Financial_WH;
+
+
+/*
+Python Stored Procedure that calculates a dynamic, mathematical fraud risk score (0 to 100) for every account based on historical activity patterns.
+*/
+
+
+
+CREATE OR REPLACE PROCEDURE SP_CALCULATE_FRAUD_RISK_SCORES()
+RETURNS STRING
+LANGUAGE PYTHON
+RUNTIME_VERSION = '3.9'
+PACKAGES = ('snowflake-snowpark-python')
+HANDLER = 'run_fraud_scoring'
+AS
+$$
+import snowflake.snowpark as snowpark
+from snowflake.snowpark.functions import col, lit, when, max as max_, sum as sum_, count as count_
+
+def run_fraud_scoring(session: snowpark.Session) -> str:
+    # 1. Pull directly from your Gold Fact Layer
+    fact_df = session.table("SYNTHETIC_FINANCIAL_DB.GOLD_LAYER.FACT_TRANSACTIONS")
+    
+    # 2. Build explicit continuous aggregations
+    customer_profiles = fact_df.group_by("CUSTOMER_KEY").agg([
+        count_("TRANSACTION_HASH").alias("TOTAL_TX_COUNT"),
+        sum_("IS_FRAUD").alias("HISTORICAL_FRAUD_COUNT"),
+        sum_("HIGH_VALUE_FLAG").alias("TOTAL_HIGH_VALUE_TX"),
+        max_("TRANSACTION_AMOUNT").alias("PEAK_TRANSACTION_VAL")
+    ])
+    
+    # 3. Apply Continuous Risk Progression Scoring Matrix
+    scored_profiles = customer_profiles.with_column(
+        "FRAUD_RISK_SCORE",
+        when(col("HISTORICAL_FRAUD_COUNT") > 0, lit(85.0) + (col("TOTAL_HIGH_VALUE_TX") * lit(1.5)))
+        .otherwise(
+            when(col("PEAK_TRANSACTION_VAL") >= 1000000, lit(45.0) + (col("TOTAL_HIGH_VALUE_TX") * lit(0.5)))
+            .otherwise(lit(10.0) + (col("TOTAL_HIGH_VALUE_TX") * lit(0.2)))
+        )
+    ).with_column(
+        "RISK_SEGMENT",
+        when(col("FRAUD_RISK_SCORE") >= 80.0, lit("CRITICAL_RISK"))
+        .when(col("FRAUD_RISK_SCORE") >= 40.0, lit("MONITORED_RISK"))
+        .otherwise(lit("STANDARD_RISK"))
+    )
+    
+    # Absolute ceiling safety cap at 100.0
+    final_scored_df = scored_profiles.with_column(
+        "FRAUD_RISK_SCORE",
+        when(col("FRAUD_RISK_SCORE") > 100.0, lit(100.0)).otherwise(col("FRAUD_RISK_SCORE"))
+    )
+    
+    # 4. Save directly as an official analytics Dimension table inside Gold
+    final_scored_df.write.mode("overwrite").save_as_table("SYNTHETIC_FINANCIAL_DB.GOLD_LAYER.DIM_CUSTOMER_RISK_PROFILES")
+    
+    return "SUCCESS: Unified Risk Analytics Profile table compiled successfully."
+$$;
+
+
+
+
+-- validation query
+-- 1. Execute the refined procedure
+CALL SP_CALCULATE_FRAUD_RISK_SCORES();
+
+-- 2. Audit the total row validation
+SELECT COUNT(*) FROM DIM_CUSTOMER_RISK_PROFILES; --  6,353,307
+
+-- 3. Review distribution metrics to supply your final dashboard tiles
+SELECT 
+    RISK_SEGMENT, 
+    COUNT(*) AS TOTAL_PROFILED_ACCOUNTS,
+    ROUND(AVG(FRAUD_RISK_SCORE), 2) AS SYSTEM_AVG_SCORE
+FROM DIM_CUSTOMER_RISK_PROFILES
+GROUP BY RISK_SEGMENT;

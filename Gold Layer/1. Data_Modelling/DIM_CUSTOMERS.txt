@@ -1,0 +1,77 @@
+USE DATABASE Synthetic_Financial_DB;
+
+USE SCHEMA GOLD_LAYER;
+
+USE WAREHOUSE Synthetic_Financial_WH;
+
+
+-- DIM_CUSTOMER
+
+/*
+this table now supports:
+customer analytics
+segmentation
+fraud exposure analysis
+customer lifetime profiling
+*/
+
+
+
+CREATE OR REPLACE TABLE DIM_CUSTOMER AS
+
+WITH CUSTOMER_AGGREGATES AS
+(
+    SELECT
+        CUSTOMER_ID,
+        AVG(TRANSACTION_AMOUNT) AS AVG_TRANSACTION_AMOUNT,
+        SUM(IS_FRAUD) AS FRAUD_TRANSACTION_COUNT
+    FROM SILVER_LAYER.SILVER_TRANSACTIONS
+    GROUP BY CUSTOMER_ID
+)
+
+SELECT
+    ROW_NUMBER() OVER (ORDER BY CUSTOMER_ID) AS CUSTOMER_KEY,
+
+    CUSTOMER_ID,
+
+    -- synthetic customer segmentation
+    CASE
+        WHEN AVG_TRANSACTION_AMOUNT >= 300000
+            THEN 'HIGH_VALUE'
+        WHEN AVG_TRANSACTION_AMOUNT >= 100000
+            THEN 'MEDIUM_VALUE'
+        ELSE 'LOW_VALUE'
+    END AS CUSTOMER_SEGMENT,
+
+    -- synthetic customer risk profile
+    CASE
+        WHEN FRAUD_TRANSACTION_COUNT > 0
+            THEN 'HIGH_RISK'
+        ELSE 'NORMAL'
+    END AS CUSTOMER_RISK_PROFILE,
+
+    CURRENT_TIMESTAMP() AS CREATED_AT
+
+FROM CUSTOMER_AGGREGATES;
+
+
+
+
+-- validation queries
+
+SELECT COUNT(*)  // 6362620
+FROM DIM_CUSTOMER; 
+
+-- segment distribution
+SELECT
+    CUSTOMER_SEGMENT,
+    COUNT(*) AS TOTAL_CUSTOMERS
+FROM DIM_CUSTOMER
+GROUP BY CUSTOMER_SEGMENT;
+
+-- risk distribution
+SELECT
+    CUSTOMER_RISK_PROFILE,
+    COUNT(*) AS TOTAL_CUSTOMERS
+FROM DIM_CUSTOMER
+GROUP BY CUSTOMER_RISK_PROFILE;

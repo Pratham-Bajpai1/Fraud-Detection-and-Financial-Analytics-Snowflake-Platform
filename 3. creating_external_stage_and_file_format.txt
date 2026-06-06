@@ -1,0 +1,19 @@
+CREATE OR REPLACE FILE FORMAT synthetic_financial_csv_format
+    TYPE = 'CSV'
+    FIELD_DELIMITER = ','
+    SKIP_HEADER = 1
+    FIELD_OPTIONALLY_ENCLOSED_BY = '"'
+    NULL_IF = ('NULL', 'null', '');
+
+
+CREATE OR REPLACE STAGE synthetic_financial_external_stage
+    URL = 's3://snowflake-fraud-analytics-data/'
+    STORAGE_INTEGRATION = s3_synthetic_financial_integration
+    FILE_FORMAT = synthetic_financial_csv_format;
+
+
+LIST @synthetic_financial_external_stage;    
+
+
+-- Compute the total number of rows 
+SELECT COUNT(*) FROM @synthetic_financial_external_stage/raw_data/PS_20174392719_1491204439457_log.csv; // 6362620

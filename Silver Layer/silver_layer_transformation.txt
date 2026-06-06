@@ -1,0 +1,150 @@
+USE DATABASE Synthetic_Financial_DB;
+
+USE SCHEMA SILVER_LAYER;
+
+USE WAREHOUSE Synthetic_Financial_WH;
+
+
+/*
+i am creating:
+engineered timestamps
+derived analytical features
+risk categories
+high value indicators
+transaction dimension
+*/
+
+ 
+-- divide the query into multiple parts
+CREATE OR REPLACE TABLE SILVER_TRANSACTIONS AS
+SELECT
+    -- generate a unique hash for each transaction to act as a primary identifier
+    SHA2(CONCAT(CUSTOMER_ID, MERCHANT_ID, STEP_NUMBER, TRANSACTION_AMOUNT), 256) AS TRANSACTION_HASH,
+
+    STEP_NUMBER,
+
+    -- convert step (hours) into a real timestamp starting from Jan 1st, 2025
+    DATEADD(
+        HOUR,
+        STEP_NUMBER,
+        TO_TIMESTAMP('2025-01-01 00:00:00')
+    ) AS TRANSACTION_TIMESTAMP,
+
+    UPPER(TRANSACTION_TYPE) AS TRANSACTION_TYPE,
+
+    TRANSACTION_AMOUNT,
+
+    CUSTOMER_ID,
+    CUSTOMER_OLD_BALANCE,
+    CUSTOMER_NEW_BALANCE,
+
+    MERCHANT_ID,
+    MERCHANT_OLD_BALANCE,
+    MERCHANT_NEW_BALANCE,
+
+    IS_FRAUD,
+    IS_FLAGGED_FRAUD,
+
+    -- derived features
+    HOUR(
+        DATEADD(
+            HOUR,
+            STEP_NUMBER,
+            TO_TIMESTAMP('2025-01-01 00:00:00')
+        )
+    ) AS TRANSACTION_HOUR,
+
+    DAYNAME(
+        DATEADD(
+            HOUR,
+            STEP_NUMBER,
+            TO_TIMESTAMP('2025-01-01 00:00:00')
+        )
+    ) AS TRANSACTION_DAY,
+
+    MONTH(
+        DATEADD(
+            HOUR,
+            STEP_NUMBER,
+            TO_TIMESTAMP('2025-01-01 00:00:00')
+        )
+    ) AS TRANSACTION_MONTH,
+
+    YEAR(
+        DATEADD(
+            HOUR,
+            STEP_NUMBER,
+            TO_TIMESTAMP('2025-01-01 00:00:00')
+        )
+    ) AS TRANSACTION_YEAR,
+
+    -- high value transaction flag (flag transactions > 200,000 typical high-risk threshold)
+    CASE
+        WHEN TRANSACTION_AMOUNT >= 200000 THEN 1
+        ELSE 0
+    END AS HIGH_VALUE_FLAG,
+
+    -- Balance Change
+    ABS(CUSTOMER_NEW_BALANCE - CUSTOMER_OLD_BALANCE)
+        AS CUSTOMER_BALANCE_CHANGE,
+
+    -- synthetic risk category
+    CASE
+        WHEN TRANSACTION_AMOUNT >= 500000 THEN 'HIGH_RISK'
+        WHEN TRANSACTION_AMOUNT >= 100000 THEN 'MEDIUM_RISK'
+        ELSE 'LOW_RISK'
+    END AS RISK_CATEGORY,
+
+    FILE_NAME,
+    LOAD_TIMESTAMP
+
+FROM RAW_LAYER.RAW_TRANSACTIONS;
+
+
+
+
+-- validation queries
+
+-- total rows
+SELECT COUNT(*) 
+FROM SILVER_TRANSACTIONS; // 6362620
+
+
+-- verify uniqueness of our new hash key
+SELECT COUNT(DISTINCT TRANSACTION_HASH), COUNT(*) 
+FROM SILVER_TRANSACTIONS;
+
+
+-- fraud by transaction type (fraud mainly exists in TRANSFER/CASH_OUT)
+SELECT
+    TRANSACTION_TYPE,
+    IS_FRAUD,
+    COUNT(*) AS TOTAL_TRANSACTIONS
+FROM SILVER_TRANSACTIONS
+GROUP BY 1,2
+ORDER BY TOTAL_TRANSACTIONS DESC;
+
+
+-- risk category distribution
+SELECT
+    RISK_CATEGORY,
+    COUNT(*) AS TOTAL_TRANSACTIONS
+FROM SILVER_TRANSACTIONS
+GROUP BY RISK_CATEGORY;
+
+
+-- high value transactions
+SELECT
+    HIGH_VALUE_FLAG,
+    COUNT(*) AS TOTAL_TRANSACTIONS
+FROM SILVER_TRANSACTIONS
+GROUP BY HIGH_VALUE_FLAG;
+
+
+-- timestamp validation
+SELECT
+    MIN(TRANSACTION_TIMESTAMP),
+    MAX(TRANSACTION_TIMESTAMP)
+FROM SILVER_TRANSACTIONS;
+
+

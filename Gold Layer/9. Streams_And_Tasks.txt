@@ -1,0 +1,201 @@
+USE DATABASE Synthetic_Financial_DB;
+
+USE SCHEMA RAW_LAYER;
+
+USE WAREHOUSE Synthetic_Financial_WH;
+
+
+/*Streams & Tasks
+Now i implemented: Incremental Part
+CDC-style processing
+incremental pipelines
+automation
+near real-time ingestion logic
+
+What i Build
+Streams-
+Track:
+new incoming transactions
+inserted records
+changed data
+
+Tasks
+Automate:
+incremental Silver loads
+fraud monitoring
+scheduled transformations
+*/
+
+
+
+/*
+Step 1 — Create Stream Object on RAW_TRANSACTIONS table
+STREAM FOR INCREMENTAL INGESTION
+Initially:
+stream may show existing records
+or no changes depending on consumption state
+*/
+
+CREATE OR REPLACE STREAM RAW_TRANSACTIONS_STREAM
+ON TABLE RAW_TRANSACTIONS;
+
+-- Validate Stream
+SHOW STREAMS;
+
+SELECT *
+FROM RAW_TRANSACTIONS_STREAM
+LIMIT 10;
+
+
+
+
+/*
+Step 2 — Create Incremental Silver Table (incremental ETL processing)
+This creates: empty incremental target table
+*/
+USE DATABASE Synthetic_Financial_DB;
+
+USE SCHEMA SILVER_LAYER;
+
+USE WAREHOUSE Synthetic_Financial_WH;
+
+CREATE OR REPLACE TABLE SILVER_TRANSACTIONS_INCREMENTAL AS
+SELECT *
+FROM SILVER_TRANSACTIONS
+WHERE 1 = 0;
+
+
+
+
+
+/*
+Step 3 — Incremental Load Task
+Now create automated task.
+This demonstrates:
+stream consumption
+automated incremental ETL
+*/
+
+CREATE OR REPLACE TASK LOAD_INCREMENTAL_TRANSACTIONS_TASK
+WAREHOUSE = Synthetic_Financial_WH
+SCHEDULE = '5 MINUTE'
+
+AS
+INSERT INTO SILVER_TRANSACTIONS_INCREMENTAL
+SELECT
+    SHA2(
+        CONCAT(
+            CUSTOMER_ID,
+            MERCHANT_ID,
+            STEP_NUMBER,
+            TRANSACTION_AMOUNT
+        ),
+        256
+    ) AS TRANSACTION_HASH,
+
+    STEP_NUMBER,
+
+    DATEADD(
+        HOUR,
+        STEP_NUMBER,
+        TO_TIMESTAMP('2025-01-01 00:00:00')
+    ) AS TRANSACTION_TIMESTAMP,
+
+    UPPER(TRANSACTION_TYPE) AS TRANSACTION_TYPE,
+
+    TRANSACTION_AMOUNT,
+
+    CUSTOMER_ID,
+
+    CUSTOMER_OLD_BALANCE,
+
+    CUSTOMER_NEW_BALANCE,
+
+    MERCHANT_ID,
+
+    MERCHANT_OLD_BALANCE,
+
+    MERCHANT_NEW_BALANCE,
+
+    IS_FRAUD,
+
+    IS_FLAGGED_FRAUD,
+
+    HOUR(
+        DATEADD(
+            HOUR,
+            STEP_NUMBER,
+            TO_TIMESTAMP('2025-01-01 00:00:00')
+        )
+    ) AS TRANSACTION_HOUR,
+
+    DAYNAME(
+        DATEADD(
+            HOUR,
+            STEP_NUMBER,
+            TO_TIMESTAMP('2025-01-01 00:00:00')
+        )
+    ) AS TRANSACTION_DAY,
+
+    MONTH(
+        DATEADD(
+            HOUR,
+            STEP_NUMBER,
+            TO_TIMESTAMP('2025-01-01 00:00:00')
+        )
+    ) AS TRANSACTION_MONTH,
+
+    YEAR(
+        DATEADD(
+            HOUR,
+            STEP_NUMBER,
+            TO_TIMESTAMP('2025-01-01 00:00:00')
+        )
+    ) AS TRANSACTION_YEAR,
+
+    CASE
+        WHEN TRANSACTION_AMOUNT >= 200000
+            THEN 1
+        ELSE 0
+    END AS HIGH_VALUE_FLAG,
+
+    ABS(
+        CUSTOMER_NEW_BALANCE
+        - CUSTOMER_OLD_BALANCE
+    ) AS CUSTOMER_BALANCE_CHANGE,
+
+    CASE
+        WHEN TRANSACTION_AMOUNT >= 500000
+            THEN 'HIGH_RISK'
+
+        WHEN TRANSACTION_AMOUNT >= 100000
+            THEN 'MEDIUM_RISK'
+
+        ELSE 'LOW_RISK'
+    END AS RISK_CATEGORY,
+
+    FILE_NAME,
+
+    LOAD_TIMESTAMP
+
+FROM RAW_LAYER.RAW_TRANSACTIONS_STREAM;
+
+
+
+
+
+-- Step 4 — Resume Task
+ALTER TASK LOAD_INCREMENTAL_TRANSACTIONS_TASK RESUME;
+
+ALTER TASK LOAD_INCREMENTAL_TRANSACTIONS_TASK SUSPEND;
+
+
+
+-- Step 5 — Check Task Status
+SHOW TASKS;
+
+
+
+-- Step 6 — Validate Incremental Table
+SELECT COUNT(*)
+FROM SILVER_TRANSACTIONS_INCREMENTAL;

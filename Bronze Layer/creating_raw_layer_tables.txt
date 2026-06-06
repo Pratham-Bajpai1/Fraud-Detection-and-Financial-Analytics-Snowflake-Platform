@@ -1,0 +1,121 @@
+USE DATABASE Synthetic_Financial_DB;
+
+USE SCHEMA RAW_LAYER;
+
+USE WAREHOUSE Synthetic_Financial_WH;
+
+
+/*
+i renamed columns
+Instead of:
+nameOrig
+oldbalanceOrg
+
+i am using -
+CUSTOMER_ID
+CUSTOMER_OLD_BALANCE
+
+Reason:
+improves readability
+more enterprise friendly
+easier for analytics
+*/
+
+
+CREATE OR REPLACE TABLE RAW_TRANSACTIONS (
+    STEP_NUMBER             INTEGER,
+    TRANSACTION_TYPE        STRING,
+    TRANSACTION_AMOUNT      NUMBER(18,2),
+
+    CUSTOMER_ID             STRING,
+    CUSTOMER_OLD_BALANCE    NUMBER(18,2),
+    CUSTOMER_NEW_BALANCE    NUMBER(18,2),
+
+    MERCHANT_ID             STRING,
+    MERCHANT_OLD_BALANCE    NUMBER(18,2),
+    MERCHANT_NEW_BALANCE    NUMBER(18,2),
+
+    IS_FRAUD                INTEGER,
+    IS_FLAGGED_FRAUD        INTEGER,
+
+    FILE_NAME               STRING,
+    LOAD_TIMESTAMP          TIMESTAMP DEFAULT CURRENT_TIMESTAMP()
+);
+
+
+
+
+
+-- load data using COPY INTO
+
+COPY INTO RAW_TRANSACTIONS
+(
+    STEP_NUMBER,
+    TRANSACTION_TYPE,
+    TRANSACTION_AMOUNT,
+
+    CUSTOMER_ID,
+    CUSTOMER_OLD_BALANCE,
+    CUSTOMER_NEW_BALANCE,
+
+    MERCHANT_ID,
+    MERCHANT_OLD_BALANCE,
+    MERCHANT_NEW_BALANCE,
+
+    IS_FRAUD,
+    IS_FLAGGED_FRAUD,
+
+    FILE_NAME
+)
+FROM
+(
+    SELECT
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8,
+        $9,
+        $10,
+        $11,
+        METADATA$FILENAME
+    FROM @SYNTHETIC_FINANCIAL_DB.SYNTHETIC_FINANCIAL_SCHEMA.synthetic_financial_external_stage/raw_data/
+)
+FILE_FORMAT = SYNTHETIC_FINANCIAL_DB.SYNTHETIC_FINANCIAL_SCHEMA.synthetic_financial_csv_format
+ON_ERROR = 'CONTINUE';
+
+
+
+
+-- validation queries
+
+-- total rows 
+SELECT COUNT(*) FROM RAW_TRANSACTIONS; // 6362620
+
+
+-- fraud distribution
+SELECT 
+    IS_FRAUD,
+    COUNT(*) AS TOTAL_TRANSACTIONS
+FROM RAW_TRANSACTIONS
+GROUP BY IS_FRAUD;
+
+
+-- transaction type distribution
+SELECT 
+    TRANSACTION_TYPE,
+    COUNT(*) AS TOTAL_TRANSACTIONS
+FROM RAW_TRANSACTIONS
+GROUP BY TRANSACTION_TYPE
+ORDER BY TOTAL_TRANSACTIONS DESC;
+
+
+-- null check
+SELECT
+    COUNT_IF(CUSTOMER_ID IS NULL) AS NULL_CUSTOMERS,
+    COUNT_IF(MERCHANT_ID IS NULL) AS NULL_MERCHANTS,
+    COUNT_IF(TRANSACTION_AMOUNT IS NULL) AS NULL_AMOUNTS
+FROM RAW_TRANSACTIONS;
