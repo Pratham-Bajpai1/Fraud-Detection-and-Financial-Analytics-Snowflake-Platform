@@ -168,7 +168,7 @@ Snowpark-generated fraud intelligence table.
 Add generated ER diagram here:
 
 ```markdown
-![ER Diagram](https://github.com/user-attachments/assets/a8384331-4136-4984-96a9-083dc5c09250)
+![ER Diagram](Learning/er_diagram.png)
 ```
 
 ---
