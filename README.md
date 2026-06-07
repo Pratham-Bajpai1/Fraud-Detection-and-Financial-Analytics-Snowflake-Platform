@@ -114,7 +114,7 @@ Streamlit Dashboard
 ## 📸 Architecture Diagram
 
 ```markdown
-![Architecture Diagram](https://github.com/user-attachments/assets/1615cfa7-3eeb-43fe-ba19-514d0e6b5111)
+![Architecture Diagram]("https://github.com/user-attachments/assets/1615cfa7-3eeb-43fe-ba19-514d0e6b5111")
 ```
 
 ---
