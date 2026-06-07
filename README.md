@@ -165,11 +165,7 @@ Snowpark-generated fraud intelligence table.
 
 ## 📸 ER Diagram
 
-Add generated ER diagram here:
-
-```markdown
-![ER Diagram](Learning/er_diagram.png)
-```
+![ER Diagram](https://github.com/user-attachments/assets/a8384331-4136-4984-96a9-083dc5c09250)
 
 ---
 
@@ -253,9 +249,7 @@ The dashboard is powered using optimized Gold-layer views.
 
 ### Screenshot
 
-```markdown
 ![Executive Dashboard](https://github.com/user-attachments/assets/c09de9d7-31ff-4261-8f57-650c397d17de)
-```
 
 ---
 
@@ -267,9 +261,7 @@ The dashboard is powered using optimized Gold-layer views.
 
 ### Screenshot
 
-```markdown
-![Fraud Analytics](Screenshots/Fraud_Analytics.png)
-```
+![Fraud Analytics](https://github.com/user-attachments/assets/fa0758a3-dbdd-4011-924b-621f5c20fd01)
 
 ---
 
@@ -280,9 +272,7 @@ The dashboard is powered using optimized Gold-layer views.
 
 ### Screenshot
 
-```markdown
-![Customer Insights](Screenshots/Customer_Insights.png)
-```
+![Customer Insights](https://github.com/user-attachments/assets/164bcb9f-9605-405b-8d6f-a8e75c7b22dd)
 
 ---
 
@@ -293,9 +283,7 @@ The dashboard is powered using optimized Gold-layer views.
 
 ### Screenshot
 
-```markdown
-![Financial Analytics](Screenshots/Financial_Analytics.png)
-```
+![Financial Analytics](https://github.com/user-attachments/assets/15450c8f-7d25-431e-9d80-e6c0a1836acc)
 
 ---
 
@@ -308,9 +296,7 @@ The dashboard is powered using optimized Gold-layer views.
 
 ### Screenshot
 
-```markdown
-![Risk Intelligence](Screenshots/Risk_Intelligence.png)
-```
+![Risk Intelligence](https://github.com/user-attachments/assets/e1b2484c-910e-4a4c-a37f-12219d966942)
 
 ---
 
@@ -389,6 +375,7 @@ Bypassing the security risks of exporting data to external, unsecured secondary 
 # 👨‍💻 Author
 
 Pratham Bajpai
+
 Data Engineering | Snowflake | Python | SQL | Streamlit
 
 ---
